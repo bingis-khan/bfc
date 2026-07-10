@@ -1,0 +1,86 @@
+# creates an executable which takes in input and produces output yo.
+
+al = Alloc.idc()
+args = Args.get()
+file = args[0] File.read-contents(al)
+
+arr =& Mem.zeroed() as Array 3000 I32
+
+ip = 0
+mp = 0
+jumps =& Hash.mk(al) as Hash _ Size Size
+while ip < file StrView.num-bytes()
+	case file StrView.char-at-offset(ip)
+		'>'
+			mp <= mp + 1
+		'<'
+			mp <= mp - 1
+
+		'+'
+			arr Array.set(mp, arr Array.get(mp) + 1)
+		'-'
+			arr Array.set(mp, arr Array.get(mp) - 1)
+
+		'.'
+			x = arr Array.get(mp)
+			c = x Mem.i32-u8() Char.from-u8()
+			Term.print(c)
+		','
+			todo'(',')
+
+		'['
+			memval = arr Array.get(mp)
+			if memval == 0
+				from-jump = ip
+				case jumps Hash.lookup(from-jump)
+					Just(jmp)
+						ip <= jmp
+					None
+						stak = 0
+						while True
+							ip <= ip + 1
+							c = file StrView.char-at-offset(ip)
+							case c
+								'['
+									stak <= stak + 1
+								']'
+									if stak == 0
+										break
+									stak <= stak - 1
+								_
+									pass
+
+						jumps Hash.insert(from-jump, ip)
+						jumps Hash.insert(ip, from-jump)
+
+		']'
+			memval = arr Array.get(mp)
+			if memval /= 0
+				from-jump = ip
+				case jumps Hash.lookup(from-jump)
+					Just(jmp)
+						ip <= jmp
+					None
+						stak = 0
+						while True
+							ip <= ip - 1
+							c = file StrView.char-at-offset(ip)
+							case c
+								'['
+									if stak == 0
+										break
+									stak <= stak - 1
+								']'
+									stak <= stak + 1
+								_
+									pass
+
+						jumps Hash.insert(from-jump, ip)
+						jumps Hash.insert(ip, from-jump)
+
+		_
+			pass
+	ip <= ip + 1
+
+
+file StrView.free(al)
