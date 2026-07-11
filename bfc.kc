@@ -17,7 +17,7 @@ fn jump-offset (from, to): ((Mem.size-u32(to) - Mem.size-u32(from)) - 6)
 fn here(): bb ByteBuf.count-written-bytes()
 
 cell-size = 4
-cells = 100
+cells = 30000
 bb push(dword(0))
 bb mov(RBP, reg(RSP))
 
@@ -67,15 +67,17 @@ for c in file chars()
 			bb syscall()
 			
 			bb ByteBuf.write-array([0x48, 0x83, 0xf8, 0x00])  # cmp rax, 0
-			from = here()
-			patch = bb jg(dword(0xfafafafa))
 			
-			# exit if stdin not workn :3
-			bb mov(RAX, dword(60))
-			bb xor(RDI, reg(RDI))
-			bb syscall()
-			
-			bb ByteBuf.patch(patch, jump-offset(from, here()))
+			# just leave the result in the cell - if nothing gets read, it's gonna be 0.
+			# from = here()
+			# patch = bb jg(dword(0xfafafafa))
+			# 
+			# # exit if stdin not workn :3
+			# bb mov(RAX, dword(0))
+			# bb xor(RDI, reg(RDI))
+			# bb syscall()
+			# 
+			# bb ByteBuf.patch(patch, jump-offset(from, here()))
 
 		'['
 			bb ByteBuf.write-array([0x8b, 0x04, 0x9c])  # mov eax,dword PTR [rsp+rbx*4]
@@ -102,11 +104,11 @@ bb mov(RAX, dword(60))
 bb xor(RDI, reg(RDI))
 bb syscall()
 
-nu-filename =
-	if filename Str.ends-with('.bf'):
-		filename StrView.byte-substr(0, filename StrView.num-bytes() - 3) StrView.clone-0(al)
-	else
-		StrView.from-str('\(filename).exe', al)
+ext = filename Path.extension()
+nu-filename = (case ext)
+	Just('bf'): filename StrView.byte-substr(0, filename StrView.num-bytes() - 3) StrView.clone-0(al)
+	Just('b'): filename StrView.byte-substr(0, filename StrView.num-bytes() - 2) StrView.clone-0(al)
+	_: StrView.from-str('\(filename).exe', al)
 
 elf Elf.write-to-file(nu-filename StrView.as-const-str())
 
