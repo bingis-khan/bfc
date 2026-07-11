@@ -1,0 +1,152 @@
+use ByteBuf
+	ByteBuf, write-array
+
+
+Reg
+	RAX
+	RBX
+	RCX
+	RDX
+	RDI
+	RSI
+	
+	RSP
+	RBP
+	RIP
+
+RegImm
+	Reg Reg
+	Imm4 (Array 4 U8)
+	Imm8 (Array 4 U8)
+
+RegImmOff
+	RegImm RegImm
+	RegOff4 Reg (Array 4 U8)
+
+
+fn nth-byte(x, n): @cast(x Math.rshift(8 * n)) as U8
+fn dword(x U32): Imm4([x nth-byte(0), x nth-byte(1), x nth-byte(2), x nth-byte(3)])
+fn offset(r Reg, ri RegImm): (case ri)
+	Imm4(bs): RegOff4(r, bs)
+	_: todo'('offset')
+fn reg(reg Reg): Reg(reg)
+
+
+fn syscall(bb)
+	bb write-array([0x0f, 0x05])
+
+fn xor(bb, r Reg, ri RegImm)
+	case r
+		RDI
+			case ri
+				Reg(RDI)
+					bb write-array([0x48, 0x31, 0xff])
+				_
+					todo'('xor rdi')
+		_
+			todo'('xor')
+
+fn mov(bb, r Reg, ri RegImm)
+	case ri
+		Imm4(bs)
+			bb write-array([case r])
+				RAX: 0xb8
+				RBX: 0xbb
+				RBP: 0xbd
+				RDI: 0xbf
+				RDX: 0xba
+				RIP: Error.panic'('mov rip, ... is not defined.')
+				_: todo'('mov _, imm4')
+			bb write-array(bs)
+		Reg(RSP)
+			bb write-array([0x48, 0x89, 0xe5])
+		_
+			todo'('mov')
+
+fn lea(bb, r Reg, ri RegImm)
+	todo'('lea')
+
+fn push(bb, ri RegImm)
+	case ri
+		Reg(r)
+			bb write-array([case r])
+				RAX: 0x50
+				RBX: 0x53
+				_: todo'('push [reg]')
+		Imm4(bs)
+			bb write-array([0x68])
+			bb write-array(bs)
+		_
+			todo'('push')
+
+fn cmp(bb, r Reg, ri RegImm)
+	case ri
+		Imm4(bs)
+			bb write-array([0x48, 0x81, 0xfb])
+			bb write-array(bs)
+		_
+			todo'('cmp')
+
+fn test(bb, r Reg, ri RegImm)
+	case ri
+		Reg(RAX)
+			case r
+				RAX
+					bb write-array([0x48, 0x85, 0xc0])
+				_
+					todo'('test ..., rax')
+		_
+			todo'('test')
+
+fn jne(bb, ri RegImm)
+	case ri
+		Imm4(bs)
+			bb write-array([0x0f, 0x85])
+			off = bb ByteBuf.count-written-bytes()
+			bb write-array(bs)
+			return off
+		_
+			todo'('jne')
+
+fn je(bb, ri RegImm)
+	case ri
+		Imm4(bs)
+			bb write-array([0x0f, 0x84])
+			off = bb ByteBuf.count-written-bytes()
+			bb write-array(bs)
+			return off
+		_
+			todo'('je')
+
+fn jg(bb, ri RegImm)
+	case ri
+		Imm4(bs)
+			bb write-array([0x0f, 0x8f])
+			off = bb ByteBuf.count-written-bytes()
+			bb write-array(bs)
+			return off
+		_
+			todo'('jg')
+
+
+fn inc(bb, rio RegImmOff)
+	case rio
+		RegOff4(r, off-bs)
+			bb write-array([0xff, 0x85])
+			bb write-array(off-bs)
+		RegImm(ri)
+			case ri
+				Reg(RBX)
+					bb write-array([0x48, 0xff, 0xc3])
+				_
+					todo'('inc')
+	
+fn dec(bb, r Reg)
+	case r
+		RAX
+			bb write-array([0x48, 0xff, 0xc8])
+		RBX
+			bb write-array([0x48, 0xff, 0xcb])
+		_
+			todo'('dec')
+

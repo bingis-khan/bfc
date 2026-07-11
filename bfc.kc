@@ -1,86 +1,115 @@
 # creates an executable which takes in input and produces output yo.
+use X64
+	mov, xor, syscall, Reg(*), RegImmOff(*), dword, reg
+	dec, test, jne, push, offset, inc, je, jg
+
 
 al = Alloc.idc()
 args = Args.get()
-file = args[0] File.read-contents(al)
+filename = args[0] StrView.from-const-str()
+file = filename StrView.as-const-str() File.read-contents(al)
 
-arr =& Mem.zeroed() as Array 3000 I32
+elf =& Elf.mk(al)
+bb = elf Elf.bytebuf()
 
-ip = 0
-mp = 0
-jumps =& Hash.mk(al) as Hash _ Size Size
-while ip < file StrView.num-bytes()
-	case file StrView.char-at-offset(ip)
+
+fn jump-offset (from, to): ((Mem.size-u32(to) - Mem.size-u32(from)) - 6)
+fn here(): bb ByteBuf.count-written-bytes()
+
+cell-size = 4
+cells = 100
+bb push(dword(0))
+bb mov(RBP, reg(RSP))
+
+
+bb mov(RAX, dword((cells - 1) / 2))
+clear-loop-off = here()
+bb dec(RAX)
+bb push(dword(0))
+bb test(RAX, reg(RAX))
+bb jne(dword(jump-offset(here(), clear-loop-off)))
+
+
+off = 0
+Jump
+	jump-addr List.Idx
+	jump-from List.Idx
+	patch-addr List.Idx
+	
+jumps =& List.mk(al) as List _ Jump
+for c in file chars()
+	case c
 		'>'
-			mp <= mp + 1
+			bb inc(RegImm(reg(RBX)))
 		'<'
-			mp <= mp - 1
+			bb dec(RBX)
 
 		'+'
-			arr Array.set(mp, arr Array.get(mp) + 1)
+			# whatever, i need better API, which I dont feel like writing now.
+			bb ByteBuf.write-array([0xff, 0x04, 0x9c])  # inc dword [rsp + rbx*4]
 		'-'
-			arr Array.set(mp, arr Array.get(mp) - 1)
+			bb ByteBuf.write-array([0xff, 0x0c, 0x9c])  # dec dword [rsp + rbx*4]
 
 		'.'
-			x = arr Array.get(mp)
-			c = x Mem.i32-u8() Char.from-u8()
-			Term.print(c)
+			bb mov(RAX, dword(1))  # SYS_write
+			bb mov(RDI, dword(1))  # stdout
+			bb ByteBuf.write-array([0x48, 0x8d, 0x34, 0x9c])  # lea rsi,[rsp+rbx*4]
+			bb mov(RDX, dword(1))
+			bb syscall()
+			
 		','
-			todo'(',')
+			# clear buffer yo
+			bb ByteBuf.write-array([0xc7, 0x04, 0x9c, 0x00, 0x00, 0x00, 0x00])  # mov DWORD PTR [rsp+rbx*4],0x0
+			bb mov(RAX, dword(0))  # SYS_read
+			bb mov(RDI, dword(0))  # stdin
+			bb ByteBuf.write-array([0x48, 0x8d, 0x34, 0x9c])  # lea rsi,[rsp+rbx*4]
+			bb mov(RDX, dword(1))
+			bb syscall()
+			
+			bb ByteBuf.write-array([0x48, 0x83, 0xf8, 0x00])  # cmp rax, 0
+			from = here()
+			patch = bb jg(dword(0xfafafafa))
+			
+			# exit if stdin not workn :3
+			bb mov(RAX, dword(60))
+			bb xor(RDI, reg(RDI))
+			bb syscall()
+			
+			bb ByteBuf.patch(patch, jump-offset(from, here()))
 
 		'['
-			memval = arr Array.get(mp)
-			if memval == 0
-				from-jump = ip
-				case jumps Hash.lookup(from-jump)
-					Just(jmp)
-						ip <= jmp
-					None
-						stak = 0
-						while True
-							ip <= ip + 1
-							c = file StrView.char-at-offset(ip)
-							case c
-								'['
-									stak <= stak + 1
-								']'
-									if stak == 0
-										break
-									stak <= stak - 1
-								_
-									pass
-
-						jumps Hash.insert(from-jump, ip)
-						jumps Hash.insert(ip, from-jump)
+			bb ByteBuf.write-array([0x8b, 0x04, 0x9c])  # mov eax,dword PTR [rsp+rbx*4]
+			bb test(RAX, reg(RAX))
+			jump-from = here()
+			jmp-off = bb je(dword(0xfafafafa))
+			loop-to-here = here()
+			jumps List.add({ jump-addr: loop-to-here, patch-addr: jmp-off, jump-from })
 
 		']'
-			memval = arr Array.get(mp)
-			if memval /= 0
-				from-jump = ip
-				case jumps Hash.lookup(from-jump)
-					Just(jmp)
-						ip <= jmp
-					None
-						stak = 0
-						while True
-							ip <= ip - 1
-							c = file StrView.char-at-offset(ip)
-							case c
-								'['
-									if stak == 0
-										break
-									stak <= stak - 1
-								']'
-									stak <= stak + 1
-								_
-									pass
-
-						jumps Hash.insert(from-jump, ip)
-						jumps Hash.insert(ip, from-jump)
+			bb ByteBuf.write-array([0x8b, 0x04, 0x9c])  # mov eax,dword PTR [rsp+rbx*4]
+			bb test(RAX, reg(RAX))
+			
+			jmp-addrs = jumps List.pop() or-fail('no matching "["')
+			_ = bb jne(dword(jump-offset(here(), jmp-addrs.jump-addr)))
+			bb ByteBuf.patch(jmp-addrs.patch-addr, jump-offset(jmp-addrs.jump-from, here()))
 
 		_
 			pass
-	ip <= ip + 1
 
+assert(jumps null(), 'mismatched brackets. (more "[")')
 
+bb mov(RAX, dword(60))
+bb xor(RDI, reg(RDI))
+bb syscall()
+
+nu-filename =
+	if filename Str.ends-with('.bf'):
+		filename StrView.byte-substr(0, filename StrView.num-bytes() - 3) StrView.clone-0(al)
+	else
+		StrView.from-str('\(filename).exe', al)
+
+elf Elf.write-to-file(nu-filename StrView.as-const-str())
+
+nu-filename StrView.free(al)
 file StrView.free(al)
+
